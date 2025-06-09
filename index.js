@@ -37,6 +37,9 @@ client.on('ready', () => {
   console.log('Shellzinha Private ON');
   qrCodeData = null;
   clientReady = true;
+
+  // Inicia os intervalos somente quando o client estiver pronto
+  iniciarIntervalos();
 });
 
 // ========== FUNÇÕES E EVENTOS ==========
@@ -51,9 +54,13 @@ const regrasDoGrupo = `📌 *REGRAS DO GRUPO:*
 Obrigado por colaborar.
 `;
 
-// ... [mantenha todas as suas funções daqui, sem mudança]
-async function moderarMensagem(msg) { /* ... */ }
-async function handleCommands(msg) { /* ... */ }
+// Supondo que você tenha essas funções implementadas no seu código original:
+async function moderarMensagem(msg) {
+  // seu código de moderação aqui
+}
+async function handleCommands(msg) {
+  // seu código de comandos aqui
+}
 
 client.on('message', async msg => {
   const chat = await msg.getChat();
@@ -117,13 +124,16 @@ async function gerenciarGrupoPorHorario() {
   }
 }
 
-setInterval(gerenciarGrupoPorHorario, 60000);
+// Função para iniciar os intervalos APENAS quando o client estiver pronto
+function iniciarIntervalos() {
+  setInterval(gerenciarGrupoPorHorario, 60000);
 
-setInterval(() => {
-  if (clientReady) {
-    client.sendMessage(seuNumero, '✅ Ping automático - bot ativo.');
-  }
-}, 20 * 60 * 1000);
+  setInterval(() => {
+    if (clientReady) {
+      client.sendMessage(seuNumero, '✅ Ping automático - bot ativo.');
+    }
+  }, 20 * 60 * 1000);
+}
 
 // Inicializa o bot
 client.initialize();
