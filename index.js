@@ -1,8 +1,6 @@
 const express = require('express');
 const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
-const path = require('path');
-const fs = require('fs');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -25,6 +23,7 @@ const gruposPermitidos = [
 const avisados = {};
 const seuNumero = '13988755893@c.us';
 
+// Evento QR
 client.on('qr', (qr) => {
   qrcode.toDataURL(qr, (err, url) => {
     if (err) return console.error(err);
@@ -33,19 +32,22 @@ client.on('qr', (qr) => {
   });
 });
 
+// Evento ready
 client.on('ready', () => {
   console.log('Shellzinha Private ON');
   qrCodeData = null;
   clientReady = true;
 
-  // Inicia os intervalos somente quando o client estiver pronto
+  // Aguarda 2 segundos e envia o comando !help para seu número
+  setTimeout(() => {
+    client.sendMessage(seuNumero, '!help');
+  }, 2000);
+
+  // Inicia os intervalos só agora
   iniciarIntervalos();
 });
 
-// ========== FUNÇÕES E EVENTOS ==========
-// (Aqui você pode manter todas suas funções: moderarMensagem, handleCommands, comandos, regras, etc.)
-// Copiei direto do seu código, sem alterar nada do seu funcionamento
-
+// Regras do grupo
 const regrasDoGrupo = `📌 *REGRAS DO GRUPO:*
 1️⃣ Sem *links*, *fotos* ou *vídeos*.
 2️⃣ Permitido: *áudios*, *stickers* e *textos* (máx. 35 palavras).
@@ -54,34 +56,44 @@ const regrasDoGrupo = `📌 *REGRAS DO GRUPO:*
 Obrigado por colaborar.
 `;
 
-// Supondo que você tenha essas funções implementadas no seu código original:
+// Placeholder para suas funções originais
 async function moderarMensagem(msg) {
-  // seu código de moderação aqui
+  // Seu código de moderação aqui
 }
 async function handleCommands(msg) {
-  // seu código de comandos aqui
+  // Seu código de comandos aqui
 }
 
+// Evento message (mensagens recebidas)
 client.on('message', async msg => {
-  const chat = await msg.getChat();
-  if (!chat.isGroup || !gruposPermitidos.includes(chat.id._serialized)) return;
+  try {
+    const chat = await msg.getChat();
+    if (!chat.isGroup || !gruposPermitidos.includes(chat.id._serialized)) return;
 
-  const text = msg.body.trim().toLowerCase();
-  if (text === '#regras') return chat.sendMessage(regrasDoGrupo);
-  if (msg.fromMe) return;
+    const text = msg.body.trim().toLowerCase();
+    if (text === '#regras') return chat.sendMessage(regrasDoGrupo);
+    if (msg.fromMe) return;
 
-  await moderarMensagem(msg);
-  await handleCommands(msg);
+    await moderarMensagem(msg);
+    await handleCommands(msg);
+  } catch (error) {
+    console.error('Erro no evento message:', error);
+  }
 });
 
+// Evento message_create (mensagens enviadas pelo bot)
 client.on('message_create', async msg => {
-  if (!msg.fromMe) return;
-  const chat = await msg.getChat();
-  if (!chat.isGroup || !gruposPermitidos.includes(chat.id._serialized)) return;
-  await handleCommands(msg);
+  try {
+    if (!msg.fromMe) return;
+    const chat = await msg.getChat();
+    if (!chat.isGroup || !gruposPermitidos.includes(chat.id._serialized)) return;
+    await handleCommands(msg);
+  } catch (error) {
+    console.error('Erro no evento message_create:', error);
+  }
 });
 
-// Grupo por horário
+// Horários para fechar e abrir grupo
 const horarioFechar = { hora: 4, minuto: 0 };
 const horarioAbrir = { hora: 8, minuto: 0 };
 let ultimoFechamento = null;
@@ -95,7 +107,14 @@ function agoraEhHorario(horario) {
 async function gerenciarGrupoPorHorario() {
   if (!clientReady) return;
 
-  const chats = await client.getChats();
+  let chats;
+  try {
+    chats = await client.getChats();
+  } catch (error) {
+    console.error('Erro ao obter chats:', error);
+    return;
+  }
+
   for (const chat of chats) {
     if (!chat.isGroup || !gruposPermitidos.includes(chat.id._serialized)) continue;
 
@@ -124,21 +143,21 @@ async function gerenciarGrupoPorHorario() {
   }
 }
 
-// Função para iniciar os intervalos APENAS quando o client estiver pronto
+// Inicia intervalos após o client estar pronto
 function iniciarIntervalos() {
-  setInterval(gerenciarGrupoPorHorario, 60000);
+  setInterval(gerenciarGrupoPorHorario, 60000); // checa horários a cada 1 minuto
 
   setInterval(() => {
     if (clientReady) {
       client.sendMessage(seuNumero, '✅ Ping automático - bot ativo.');
     }
-  }, 20 * 60 * 1000);
+  }, 20 * 60 * 1000); // envia ping a cada 20 minutos
 }
 
-// Inicializa o bot
+// Inicializa o cliente
 client.initialize();
 
-// ========= EXPRESS PARA QR CODE =========
+// Express para servir página com QR Code
 app.get('/', (req, res) => {
   if (qrCodeData) {
     res.send(`
@@ -147,10 +166,11 @@ app.get('/', (req, res) => {
       <p>Depois que o QR for escaneado, esta tela ficará vazia.</p>
     `);
   } else {
-    res.send('<h1>Bot está conectado e ativo!</h1>');
+    res.send('<h1>Bot está conectado e ativo novamente!</h1>');
   }
 });
 
+// Inicia o servidor Express
 app.listen(port, () => {
   console.log(`Servidor Express rodando na porta ${port}`);
 });
