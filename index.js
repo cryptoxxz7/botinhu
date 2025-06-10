@@ -1,5 +1,5 @@
 const express = require('express');
-const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
+const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
 
 const app = express();
@@ -17,7 +17,6 @@ const client = new Client({
 
 const seuNumero = '13988755893@c.us';
 
-// Evento QR
 client.on('qr', (qr) => {
   qrcode.toDataURL(qr, (err, url) => {
     if (err) return console.error(err);
@@ -26,7 +25,6 @@ client.on('qr', (qr) => {
   });
 });
 
-// Evento ready
 client.on('ready', () => {
   console.log('✅ Shellzinha Private ON');
   qrCodeData = null;
@@ -39,7 +37,6 @@ client.on('ready', () => {
   iniciarIntervalos();
 });
 
-// Comandos e regras
 const regrasDoGrupo = `📌 *REGRAS DO GRUPO:*
 1️⃣ Sem *links*, *fotos* ou *vídeos*.
 2️⃣ Permitido: *áudios*, *stickers* e *textos* (máx. 35 palavras).
@@ -49,26 +46,58 @@ Obrigado por colaborar.
 `;
 
 async function moderarMensagem(msg) {
-  // Adicione aqui lógica de moderação futura
+  // (você pode adicionar lógica futuramente)
 }
 
 async function handleCommands(msg) {
   const text = msg.body.trim().toLowerCase();
 
   if (text === '!help') {
-    return msg.reply(`🤖 *Comandos disponíveis:*\n- !help\n- #regras`);
+    return msg.reply(
+      `🤖 *Shellzinha Bot - Menu de Comandos*\n\n` +
+      `📌 *Comandos Gerais:*\n` +
+      `• !help → Mostrar este menu\n` +
+      `• #regras → Ver as regras do grupo\n\n` +
+      `🛡️ *Comandos de Admin (grupo):*\n` +
+      `• !ban @usuario → Remove o membro (só se você for admin)\n`
+    );
   }
 
   if (text === '#regras') {
     return msg.reply(regrasDoGrupo);
   }
+
+  if (text.startsWith('!ban')) {
+    const chat = await msg.getChat();
+
+    if (!chat.isGroup) {
+      return msg.reply('❌ Este comando só funciona em grupos.');
+    }
+
+    const autor = chat.participants.find(p => p.id._serialized === msg.author);
+    if (!autor?.isAdmin) {
+      return msg.reply('❌ Apenas administradores podem usar o comando `!ban`.');
+    }
+
+    if (msg.mentionedIds.length === 0) {
+      return msg.reply('❌ Marque o usuário que você deseja remover.');
+    }
+
+    const targetId = msg.mentionedIds[0];
+
+    try {
+      await chat.removeParticipants([targetId]);
+      await msg.reply(`✅ Usuário removido com sucesso.`);
+    } catch (error) {
+      console.error('Erro ao banir:', error);
+      msg.reply('⚠️ Ocorreu um erro ao tentar remover o usuário.');
+    }
+  }
 }
 
-// Evento message (todas as mensagens recebidas)
 client.on('message', async msg => {
   try {
     if (msg.fromMe) return;
-
     await moderarMensagem(msg);
     await handleCommands(msg);
   } catch (error) {
@@ -76,7 +105,6 @@ client.on('message', async msg => {
   }
 });
 
-// Evento message_create (mensagens enviadas pelo próprio bot)
 client.on('message_create', async msg => {
   try {
     if (!msg.fromMe) return;
@@ -86,7 +114,6 @@ client.on('message_create', async msg => {
   }
 });
 
-// Gerenciamento automático de grupos (fechar/abrir)
 const horarioFechar = { hora: 4, minuto: 0 };
 const horarioAbrir = { hora: 8, minuto: 0 };
 let ultimoFechamento = null;
@@ -147,7 +174,6 @@ function iniciarIntervalos() {
 
 client.initialize();
 
-// Página com QR code (usada no Render)
 app.get('/', (req, res) => {
   if (qrCodeData) {
     res.send(`
@@ -160,7 +186,6 @@ app.get('/', (req, res) => {
   }
 });
 
-// Mantém o Render ativo
 app.listen(port, () => {
   console.log(`🌐 Servidor Express online na porta ${port}`);
 });
