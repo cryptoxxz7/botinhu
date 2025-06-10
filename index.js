@@ -1,54 +1,43 @@
-// ===================== DEPENDÊNCIAS E EXPRESS =====================
 const express = require('express');
-const app = express();
-const PORT = process.env.PORT || 3000;
+const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
 
-app.get('/', (req, res) => res.send('Shellzinha Private ON ✅'));
+const app = express();
+const port = process.env.PORT || 3000;
 
-let ultimaQR = null;
-app.get('/qr', async (req, res) => {
-  if (!ultimaQR) return res.send('QR ainda não gerado. Aguarde...');
-  const qrImage = await qrcode.toDataURL(ultimaQR);
-  res.send(`
-    <html>
-      <body style="text-align: center; margin-top: 40px;">
-        <h2>Escaneie o QR Code para logar no Shellzinha</h2>
-        <img src="${qrImage}" />
-      </body>
-    </html>
-  `);
-});
-
-app.listen(PORT, () => console.log(`Server web rodando na porta ${PORT}`));
-
-// ===================== WHATSAPP BOT ===============================
-const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
-const path = require('path');
-const fs = require('fs');
+let clientReady = false;
+let qrCodeData = null;
 
 const client = new Client({
   authStrategy: new LocalAuth(),
-  puppeteer: { args: ['--no-sandbox'] }
+  puppeteer: {
+    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+  },
 });
 
-const gruposPermitidos = [
-  '120363403199317276@g.us',
-  '120363351699706014@g.us'
-];
-
-const avisados = {};
 const seuNumero = '13988755893@c.us';
 
-client.on('qr', qr => {
-  ultimaQR = qr;
-  console.log("🔑 QR code gerado. Acesse /qr para escanear.");
+client.on('qr', (qr) => {
+  qrcode.toDataURL(qr, (err, url) => {
+    if (err) return console.error(err);
+    qrCodeData = url;
+    console.log('QR code gerado! Acesse a página para escanear.');
+  });
 });
 
-client.on('ready', () => console.log("Shellzinha Private ON"));
+client.on('ready', () => {
+  console.log('✅ Shellzinha Private ON');
+  qrCodeData = null;
+  clientReady = true;
 
-const regrasDoGrupo = `
-📌 *REGRAS DO GRUPO:*
+  setTimeout(() => {
+    client.sendMessage(seuNumero, '!help');
+  }, 2000);
+
+  iniciarIntervalos();
+});
+
+const regrasDoGrupo = `📌 *REGRAS DO GRUPO:*
 1️⃣ Sem *links*, *fotos* ou *vídeos*.
 2️⃣ Permitido: *áudios*, *stickers* e *textos* (máx. 35 palavras).
 3️⃣ Regras ignoradas = *banimento* após 1 aviso.
@@ -56,140 +45,73 @@ const regrasDoGrupo = `
 Obrigado por colaborar.
 `;
 
-client.on('group_join', async (notification) => {
-  const chat = await notification.getChat();
-  if (!gruposPermitidos.includes(chat.id._serialized)) return;
-
-  const contacts = await notification.getRecipients();
-  for (const contact of contacts) {
-    const nome = contact.pushname || contact.number || contact.id.user;
-    const mensagem = `
-👤 *Bem-vindo(a), ${nome}!* 👋
-| Leia as regras digitando: *#regras*. 
-🔐 Respeite as regras para não ser banido.
-Se quiser algum *serviço*, só me chamar!
-> ⚠ Não aceite serviços de outra pessoa sem ser os adm.
-`;
-    await chat.sendMessage(mensagem, { mentions: [contact] });
-  }
-});
-
 async function moderarMensagem(msg) {
-  const chat = await msg.getChat();
-  if (!chat.isGroup || !gruposPermitidos.includes(chat.id._serialized) || msg.fromMe) return;
-
-  const sender = msg.author || msg.from;
-  const participante = chat.participants.find(p => p.id._serialized === sender);
-  if (participante?.isAdmin) return;
-
-  const texto = msg.body?.trim() || '';
-  const palavras = texto.split(/\s+/).filter(w => w.length > 0).length;
-  const contemLink = /(https?:\/\/|www\.|[a-z0-9\-]+\.(com|net|org|xyz|br|info))/i.test(texto);
-
-  const permitido =
-    msg.type === 'sticker' ||
-    msg.type === 'audio' ||
-    (msg.type === 'chat' && palavras <= 35 && !contemLink);
-
-  if (permitido) return;
-
-  try { await msg.delete(true); } catch {}
-
-  if (!avisados[chat.id]) avisados[chat.id] = {};
-
-  if (avisados[chat.id][sender]) {
-    await chat.sendMessage(`Conteúdo proibido apagado: @${sender.split('@')[0]}`, {
-      mentions: [sender]
-    });
-    try {
-      await new Promise(resolve => setTimeout(resolve, 500));
-      await chat.removeParticipants([sender]);
-    } catch {
-      await chat.sendMessage('Erro ao remover. Verifique permissões do bot.');
-    }
-  } else {
-    avisados[chat.id][sender] = true;
-    await chat.sendMessage(
-      `@${sender.split('@')[0]} sua mensagem foi removida.\n\nPermitido: áudios, figurinhas.\nProibido: links, imagens ou vídeos.\nCaso mande novamente = ban.`,
-      { mentions: [sender] }
-    );
-  }
+  // Lógica de moderação futura
 }
 
 async function handleCommands(msg) {
-  const chat = await msg.getChat();
-  if (!chat.isGroup || !gruposPermitidos.includes(chat.id._serialized)) return;
-
   const text = msg.body.trim().toLowerCase();
-  const sender = msg.author || msg.from;
-  const participante = chat.participants.find(p => p.id._serialized === sender);
-  if (!participante?.isAdmin) return;
 
   if (text === '!help') {
-    const comandosFormatados = `
-[ shellzinha private ]
-|-- !ban » Banir membro respondendo a msg
-|-- @todos » Mencionar todos do grupo
-|-- #regras » Exibir regras do grupo
-> Criado por: cryptoxxz7
-`;
-    const mediaPath = path.resolve('./assets/shellzinha.jpeg');
-    if (fs.existsSync(mediaPath)) {
-      const media = MessageMedia.fromFilePath(mediaPath);
-      await chat.sendMessage(media, { caption: comandosFormatados });
-    } else {
-      await chat.sendMessage(comandosFormatados);
-    }
-    return;
+    return msg.reply(`🤖 *Comandos disponíveis:*
+- !help
+- #regras
+- !perfil
+- !voz
+- !conexoes
+- !creditos`);
   }
 
-  if (text.startsWith('!ban')) {
-    if (!msg.hasQuotedMsg) return chat.sendMessage('Responda à mensagem e digite *!ban*.');
-    try {
-      const quotedMsg = await msg.getQuotedMessage();
-      const idToRemove = quotedMsg.author || quotedMsg.from;
-      await chat.removeParticipants([idToRemove]);
-      return chat.sendMessage(`Lixo removido: @${idToRemove.split('@')[0]}`, {
-        mentions: [idToRemove]
-      });
-    } catch {
-      return chat.sendMessage('Não consegui remover o participante.');
-    }
+  if (text === '#regras') {
+    return msg.reply(regrasDoGrupo);
   }
 
-  if (text.startsWith('@todos')) {
-    try {
-      const mentions = chat.participants.map(p => p.id._serialized);
-      const mensagem = msg.body.replace('@todos', '').trim() || 'Atenção todos!';
-      return chat.sendMessage(mensagem, { mentions });
-    } catch {
-      await chat.sendMessage('Não consegui mencionar todos os membros.');
-    }
+  if (text === '!perfil') {
+    const contato = await msg.getContact();
+    const nome = contato.pushname || 'Desconhecido';
+    const numero = contato.number;
+    return msg.reply(`👤 *Seu perfil:*\n• Nome: ${nome}\n• Número: ${numero}`);
+  }
+
+  if (text === '!voz') {
+    return msg.reply('🎙️ Envie um áudio com no máximo 30 segundos para ser aceito. Exemplo de comando futuro.');
+  }
+
+  if (text === '!conexoes') {
+    const chats = await client.getChats();
+    const total = chats.length;
+    const grupos = chats.filter(c => c.isGroup).length;
+    const pv = total - grupos;
+    return msg.reply(`📡 *Conexões ativas:*\n• Total: ${total}\n• Grupos: ${grupos}\n• Privados: ${pv}`);
+  }
+
+  if (text === '!creditos') {
+    return msg.reply(`👑 *Shellzinha Bot 2025*\nDesenvolvido por: você mesmo\nCom base no whatsapp-web.js`);
   }
 }
 
 client.on('message', async msg => {
-  const chat = await msg.getChat();
-  if (!chat.isGroup || !gruposPermitidos.includes(chat.id._serialized)) return;
-
-  const text = msg.body.trim().toLowerCase();
-  if (text === '#regras') return chat.sendMessage(regrasDoGrupo);
-  if (msg.fromMe) return;
-
-  await moderarMensagem(msg);
-  await handleCommands(msg);
+  try {
+    if (msg.fromMe) return;
+    await moderarMensagem(msg);
+    await handleCommands(msg);
+  } catch (error) {
+    console.error('Erro no evento message:', error);
+  }
 });
 
 client.on('message_create', async msg => {
-  if (!msg.fromMe) return;
-  const chat = await msg.getChat();
-  if (!chat.isGroup || !gruposPermitidos.includes(chat.id._serialized)) return;
-  await handleCommands(msg);
+  try {
+    if (!msg.fromMe) return;
+    await handleCommands(msg);
+  } catch (error) {
+    console.error('Erro no evento message_create:', error);
+  }
 });
 
+// Gerenciamento automático de grupo
 const horarioFechar = { hora: 4, minuto: 0 };
 const horarioAbrir = { hora: 8, minuto: 0 };
-
 let ultimoFechamento = null;
 let ultimaAbertura = null;
 
@@ -199,10 +121,18 @@ function agoraEhHorario(horario) {
 }
 
 async function gerenciarGrupoPorHorario() {
-  const chats = await client.getChats();
+  if (!clientReady) return;
+
+  let chats;
+  try {
+    chats = await client.getChats();
+  } catch (error) {
+    console.error('Erro ao obter chats:', error);
+    return;
+  }
 
   for (const chat of chats) {
-    if (!chat.isGroup || !gruposPermitidos.includes(chat.id._serialized)) continue;
+    if (!chat.isGroup) continue;
 
     const agora = new Date();
     const chaveChat = chat.id._serialized;
@@ -229,10 +159,30 @@ async function gerenciarGrupoPorHorario() {
   }
 }
 
-setInterval(gerenciarGrupoPorHorario, 60000);
-
-setInterval(() => {
-  client.sendMessage(seuNumero, '✅ Ping automático - bot ativo.');
-}, 20 * 60 * 1000);
+function iniciarIntervalos() {
+  setInterval(gerenciarGrupoPorHorario, 60000);
+  setInterval(() => {
+    if (clientReady) {
+      client.sendMessage(seuNumero, '✅ Ping automático - bot ativo.');
+    }
+  }, 20 * 60 * 1000);
+}
 
 client.initialize();
+
+// Página QR
+app.get('/', (req, res) => {
+  if (qrCodeData) {
+    res.send(`
+      <h1>Escaneie o QR Code para ativar o bot WhatsApp</h1>
+      <img src="${qrCodeData}" />
+      <p>Depois que o QR for escaneado, esta tela ficará vazia.</p>
+    `);
+  } else {
+    res.send('<h1>🤖 Bot WhatsApp está conectado e ativo!</h1>');
+  }
+});
+
+app.listen(port, () => {
+  console.log(`🌐 Servidor Express online na porta ${port}`);
+});
