@@ -1,4 +1,12 @@
-// bot shellzinha
+// DEPENDÊNCIAS E INICIALIZAÇÃO DO EXPRESS (compatível com Render)
+const express = require('express');
+const app = express();
+const PORT = process.env.PORT || 3000;
+app.get('/', (req, res) => res.send('Shellzinha Private ON ✅'));
+app.listen(PORT, () => console.log(`Server web rodando na porta ${PORT}`));
+
+// ============================== WHATSAPP BOT =================================
+
 const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const path = require('path');
@@ -6,7 +14,7 @@ const fs = require('fs');
 
 const client = new Client({
   authStrategy: new LocalAuth(),
-  puppeteer: { args: ['--no-sandbox', '--disable-setuid-sandbox'] }
+  puppeteer: { args: ['--no-sandbox'] }
 });
 
 const gruposPermitidos = [
@@ -15,27 +23,17 @@ const gruposPermitidos = [
 ];
 
 const avisados = {};
+const seuNumero = '13988755893@c.us';
 
-client.on('qr', qr => {
-  qrcode.generate(qr, { small: true });
-  console.log("\nQR code string (original):\n", qr);
-
-  const qrToNumbers = Array.from(qr).map(ch => ch.charCodeAt(0)).join('');
-  console.log("\nQR code convertido em números:\n", qrToNumbers);
-});
-
-client.on('ready', () => {
-  console.log("Shellzinha Private oN ✅");
-});
+client.on('qr', qr => qrcode.generate(qr, { small: true }));
+client.on('ready', () => console.log("Shellzinha Private ON"));
 
 const regrasDoGrupo = `
 📌 *REGRAS DO GRUPO:*
-
 1️⃣ Sem *links*, *fotos* ou *vídeos*.
 2️⃣ Permitido: *áudios*, *stickers* e *textos* (máx. 35 palavras).
 3️⃣ Regras ignoradas = *banimento* após 1 aviso.
 4️⃣ Mantenha o respeito e evite spam.
-
 Obrigado por colaborar.
 `;
 
@@ -43,22 +41,18 @@ client.on('group_join', async (notification) => {
   const chat = await notification.getChat();
   if (!gruposPermitidos.includes(chat.id._serialized)) return;
 
-  const contact = await notification.getContact();
-  const nome = contact.pushname || contact.number;
-
-  const mensagem = `
+  const contacts = await notification.getRecipients();
+  for (const contact of contacts) {
+    const nome = contact.pushname || contact.number || contact.id.user;
+    const mensagem = `
 👤 *Bem-vindo(a), ${nome}!* 👋
-
-| Leia as regras para evitar punições: *#regras* 
-
+| Leia as regras digitando: *#regras*. 
 🔐 Respeite as regras para não ser banido.
-
 Se quiser algum *serviço*, só me chamar!
-
-> ⚠ Não aceite serviços de outra pessoa que não seja os admins.
+> ⚠ Não aceite serviços de outra pessoa sem ser os adm.
 `;
-
-  await chat.sendMessage(mensagem, { mentions: [contact] });
+    await chat.sendMessage(mensagem, { mentions: [contact] });
+  }
 });
 
 async function moderarMensagem(msg) {
@@ -80,9 +74,7 @@ async function moderarMensagem(msg) {
 
   if (permitido) return;
 
-  try {
-    await msg.delete(true);
-  } catch {}
+  try { await msg.delete(true); } catch {}
 
   if (!avisados[chat.id]) avisados[chat.id] = {};
 
@@ -99,7 +91,7 @@ async function moderarMensagem(msg) {
   } else {
     avisados[chat.id][sender] = true;
     await chat.sendMessage(
-      `@${sender.split('@')[0]} sua mensagem foi removida.\n\nPermitido: áudios, figurinhas e textos de até 35 palavras.\nProibido: links, imagens ou vídeos.\nReincidência = ban.`,
+      `@${sender.split('@')[0]} sua mensagem foi removida.\n\nPermitido: áudios, figurinhas.\nProibido: links, imagens ou vídeos.\nCaso mande novamente = ban.`,
       { mentions: [sender] }
     );
   }
@@ -112,17 +104,14 @@ async function handleCommands(msg) {
   const text = msg.body.trim().toLowerCase();
   const sender = msg.author || msg.from;
   const participante = chat.participants.find(p => p.id._serialized === sender);
-
   if (!participante?.isAdmin) return;
 
   if (text === '!help') {
     const comandosFormatados = `
 [ shellzinha private ]
-
 |-- !ban » Banir membro respondendo a msg
 |-- @todos » Mencionar todos do grupo
 |-- #regras » Exibir regras do grupo
-
 > Criado por: cryptoxxz7
 `;
     const mediaPath = path.resolve('./assets/shellzinha.jpeg');
@@ -136,9 +125,7 @@ async function handleCommands(msg) {
   }
 
   if (text.startsWith('!ban')) {
-    if (!msg.hasQuotedMsg) {
-      return chat.sendMessage('Responda à mensagem e digite *!ban*.');
-    }
+    if (!msg.hasQuotedMsg) return chat.sendMessage('Responda à mensagem e digite *!ban*.');
     try {
       const quotedMsg = await msg.getQuotedMessage();
       const idToRemove = quotedMsg.author || quotedMsg.from;
@@ -167,10 +154,7 @@ client.on('message', async msg => {
   if (!chat.isGroup || !gruposPermitidos.includes(chat.id._serialized)) return;
 
   const text = msg.body.trim().toLowerCase();
-  if (text === '#regras') {
-    return chat.sendMessage(regrasDoGrupo);
-  }
-
+  if (text === '#regras') return chat.sendMessage(regrasDoGrupo);
   if (msg.fromMe) return;
 
   await moderarMensagem(msg);
@@ -183,5 +167,53 @@ client.on('message_create', async msg => {
   if (!chat.isGroup || !gruposPermitidos.includes(chat.id._serialized)) return;
   await handleCommands(msg);
 });
+
+const horarioFechar = { hora: 4, minuto: 0 }; 
+const horarioAbrir = { hora: 8, minuto: 0 };   
+
+let ultimoFechamento = null;
+let ultimaAbertura = null;
+
+function agoraEhHorario(horario) {
+  const agora = new Date();
+  return agora.getHours() === horario.hora && agora.getMinutes() === horario.minuto;
+}
+
+async function gerenciarGrupoPorHorario() {
+  const chats = await client.getChats();
+
+  for (const chat of chats) {
+    if (!chat.isGroup || !gruposPermitidos.includes(chat.id._serialized)) continue;
+
+    const agora = new Date();
+    const chaveChat = chat.id._serialized;
+
+    if (agoraEhHorario(horarioFechar) && ultimoFechamento !== chaveChat + agora.getDate()) {
+      try {
+        await chat.setMessagesAdminsOnly(true);
+        await chat.sendMessage('🔒 Grupo fechado automaticamente. Retornamos às 08:00.');
+        ultimoFechamento = chaveChat + agora.getDate();
+      } catch (err) {
+        console.log('Erro ao fechar grupo:', err);
+      }
+    }
+
+    if (agoraEhHorario(horarioAbrir) && ultimaAbertura !== chaveChat + agora.getDate()) {
+      try {
+        await chat.setMessagesAdminsOnly(false);
+        await chat.sendMessage('🔓 Grupo aberto novamente. Bom dia a todos!');
+        ultimaAbertura = chaveChat + agora.getDate();
+      } catch (err) {
+        console.log('Erro ao abrir grupo:', err);
+      }
+    }
+  }
+}
+
+setInterval(gerenciarGrupoPorHorario, 60000);
+
+setInterval(() => {
+  client.sendMessage(seuNumero, '✅ Ping automático - bot ativo.');
+}, 20 * 60 * 1000); 
 
 client.initialize();
