@@ -1,14 +1,29 @@
-// DEPENDÊNCIAS E INICIALIZAÇÃO DO EXPRESS (compatível com Render)
+// ===================== DEPENDÊNCIAS E EXPRESS =====================
 const express = require('express');
 const app = express();
 const PORT = process.env.PORT || 3000;
+const qrcode = require('qrcode');
+
 app.get('/', (req, res) => res.send('Shellzinha Private ON ✅'));
+
+let ultimaQR = null;
+app.get('/qr', async (req, res) => {
+  if (!ultimaQR) return res.send('QR ainda não gerado. Aguarde...');
+  const qrImage = await qrcode.toDataURL(ultimaQR);
+  res.send(`
+    <html>
+      <body style="text-align: center; margin-top: 40px;">
+        <h2>Escaneie o QR Code para logar no Shellzinha</h2>
+        <img src="${qrImage}" />
+      </body>
+    </html>
+  `);
+});
+
 app.listen(PORT, () => console.log(`Server web rodando na porta ${PORT}`));
 
-// ============================== WHATSAPP BOT =================================
-
+// ===================== WHATSAPP BOT ===============================
 const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
-const qrcode = require('qrcode-terminal');
 const path = require('path');
 const fs = require('fs');
 
@@ -25,7 +40,11 @@ const gruposPermitidos = [
 const avisados = {};
 const seuNumero = '13988755893@c.us';
 
-client.on('qr', qr => qrcode.generate(qr, { small: true }));
+client.on('qr', qr => {
+  ultimaQR = qr;
+  console.log("🔑 QR code gerado. Acesse /qr para escanear.");
+});
+
 client.on('ready', () => console.log("Shellzinha Private ON"));
 
 const regrasDoGrupo = `
@@ -168,8 +187,8 @@ client.on('message_create', async msg => {
   await handleCommands(msg);
 });
 
-const horarioFechar = { hora: 4, minuto: 0 }; 
-const horarioAbrir = { hora: 8, minuto: 0 };   
+const horarioFechar = { hora: 4, minuto: 0 };
+const horarioAbrir = { hora: 8, minuto: 0 };
 
 let ultimoFechamento = null;
 let ultimaAbertura = null;
@@ -214,6 +233,6 @@ setInterval(gerenciarGrupoPorHorario, 60000);
 
 setInterval(() => {
   client.sendMessage(seuNumero, '✅ Ping automático - bot ativo.');
-}, 20 * 60 * 1000); 
+}, 20 * 60 * 1000);
 
 client.initialize();
