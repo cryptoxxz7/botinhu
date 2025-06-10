@@ -1,9 +1,9 @@
 const express = require('express');
-const { Client, LocalAuth } = require('whatsapp-web.js');
+const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
 
 const app = express();
-const port = process.env.PORT || 10000;
+const port = process.env.PORT || 3000;
 
 let clientReady = false;
 let qrCodeData = null;
@@ -49,7 +49,7 @@ Obrigado por colaborar.
 `;
 
 async function moderarMensagem(msg) {
-  // Lógica de moderação futura
+  // Adicione aqui lógica de moderação futura
 }
 
 async function handleCommands(msg) {
@@ -64,9 +64,11 @@ async function handleCommands(msg) {
   }
 }
 
+// Evento message (todas as mensagens recebidas)
 client.on('message', async msg => {
   try {
     if (msg.fromMe) return;
+
     await moderarMensagem(msg);
     await handleCommands(msg);
   } catch (error) {
@@ -74,6 +76,7 @@ client.on('message', async msg => {
   }
 });
 
+// Evento message_create (mensagens enviadas pelo próprio bot)
 client.on('message_create', async msg => {
   try {
     if (!msg.fromMe) return;
@@ -83,7 +86,7 @@ client.on('message_create', async msg => {
   }
 });
 
-// Gerenciamento automático de grupos
+// Gerenciamento automático de grupos (fechar/abrir)
 const horarioFechar = { hora: 4, minuto: 0 };
 const horarioAbrir = { hora: 8, minuto: 0 };
 let ultimoFechamento = null;
@@ -95,39 +98,41 @@ function agoraEhHorario(horario) {
 }
 
 async function gerenciarGrupoPorHorario() {
-  if (!clientReady || !client.info) return;
+  if (!clientReady) return;
 
+  let chats;
   try {
-    const chats = await client.getChats();
+    chats = await client.getChats();
+  } catch (error) {
+    console.error('Erro ao obter chats:', error);
+    return;
+  }
 
-    for (const chat of chats) {
-      if (!chat.isGroup) continue;
+  for (const chat of chats) {
+    if (!chat.isGroup) continue;
 
-      const agora = new Date();
-      const chaveChat = chat.id._serialized;
+    const agora = new Date();
+    const chaveChat = chat.id._serialized;
 
-      if (agoraEhHorario(horarioFechar) && ultimoFechamento !== chaveChat + agora.getDate()) {
-        try {
-          await chat.setMessagesAdminsOnly(true);
-          await chat.sendMessage('🔒 Grupo fechado automaticamente. Retornamos às 08:00.');
-          ultimoFechamento = chaveChat + agora.getDate();
-        } catch (err) {
-          console.log('Erro ao fechar grupo:', err);
-        }
-      }
-
-      if (agoraEhHorario(horarioAbrir) && ultimaAbertura !== chaveChat + agora.getDate()) {
-        try {
-          await chat.setMessagesAdminsOnly(false);
-          await chat.sendMessage('🔓 Grupo aberto novamente. Bom dia a todos!');
-          ultimaAbertura = chaveChat + agora.getDate();
-        } catch (err) {
-          console.log('Erro ao abrir grupo:', err);
-        }
+    if (agoraEhHorario(horarioFechar) && ultimoFechamento !== chaveChat + agora.getDate()) {
+      try {
+        await chat.setMessagesAdminsOnly(true);
+        await chat.sendMessage('🔒 Grupo fechado automaticamente. Retornamos às 08:00.');
+        ultimoFechamento = chaveChat + agora.getDate();
+      } catch (err) {
+        console.log('Erro ao fechar grupo:', err);
       }
     }
-  } catch (error) {
-    console.error('Erro ao obter chats:', error.message);
+
+    if (agoraEhHorario(horarioAbrir) && ultimaAbertura !== chaveChat + agora.getDate()) {
+      try {
+        await chat.setMessagesAdminsOnly(false);
+        await chat.sendMessage('🔓 Grupo aberto novamente. Bom dia a todos!');
+        ultimaAbertura = chaveChat + agora.getDate();
+      } catch (err) {
+        console.log('Erro ao abrir grupo:', err);
+      }
+    }
   }
 }
 
@@ -142,7 +147,7 @@ function iniciarIntervalos() {
 
 client.initialize();
 
-// Página com QR code
+// Página com QR code (usada no Render)
 app.get('/', (req, res) => {
   if (qrCodeData) {
     res.send(`
@@ -155,7 +160,7 @@ app.get('/', (req, res) => {
   }
 });
 
-// Inicializa o servidor Express
+// Mantém o Render ativo
 app.listen(port, () => {
-  console.log(`🌐 Servidor web rodando na porta ${port}`);
+  console.log(`🌐 Servidor Express online na porta ${port}`);
 });
