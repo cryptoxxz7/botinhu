@@ -1,12 +1,12 @@
 const express = require('express');
-const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
+const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
 
 const app = express();
 const port = process.env.PORT || 3000;
 
 let clientReady = false;
-let qrCodeData = null; // Armazena o QR para mostrar na página
+let qrCodeData = null;
 
 const client = new Client({
   authStrategy: new LocalAuth(),
@@ -20,7 +20,6 @@ const gruposPermitidos = [
   '120363351699706014@g.us',
 ];
 
-const avisados = {};
 const seuNumero = '13988755893@c.us';
 
 // Evento QR
@@ -38,16 +37,13 @@ client.on('ready', () => {
   qrCodeData = null;
   clientReady = true;
 
-  // Aguarda 2 segundos e envia o comando !help para seu número
   setTimeout(() => {
     client.sendMessage(seuNumero, '!help');
   }, 2000);
 
-  // Inicia os intervalos só agora
   iniciarIntervalos();
 });
 
-// Regras do grupo
 const regrasDoGrupo = `📌 *REGRAS DO GRUPO:*
 1️⃣ Sem *links*, *fotos* ou *vídeos*.
 2️⃣ Permitido: *áudios*, *stickers* e *textos* (máx. 35 palavras).
@@ -56,40 +52,51 @@ const regrasDoGrupo = `📌 *REGRAS DO GRUPO:*
 Obrigado por colaborar.
 `;
 
-// Placeholder para suas funções originais
-async function moderarMensagem(msg) {
-  // Seu código de moderação aqui
-}
+// Função para responder comandos
 async function handleCommands(msg) {
-  // Seu código de comandos aqui
+  const text = msg.body.trim().toLowerCase();
+
+  if (text === '!help') {
+    const helpMsg = `🤖 *Comandos disponíveis:*
+!help - Mostrar essa ajuda
+#regras - Mostrar as regras do grupo
+... (adicione seus comandos aqui)
+`;
+    await msg.reply(helpMsg);
+  }
+  // Adicione mais comandos aqui se quiser
 }
 
 // Evento message (mensagens recebidas)
 client.on('message', async msg => {
   try {
+    if (msg.fromMe) return; // Ignora mensagens do próprio bot
+
     const chat = await msg.getChat();
-    if (!chat.isGroup || !gruposPermitidos.includes(chat.id._serialized)) return;
 
-    const text = msg.body.trim().toLowerCase();
-    if (text === '#regras') return chat.sendMessage(regrasDoGrupo);
-    if (msg.fromMe) return;
+    // Se for grupo e permitido
+    if (chat.isGroup) {
+      // Proteção para acessar _serialized
+      if (!chat.id || !chat.id._serialized) return;
 
-    await moderarMensagem(msg);
-    await handleCommands(msg);
+      if (!gruposPermitidos.includes(chat.id._serialized)) return;
+
+      const text = msg.body.trim().toLowerCase();
+
+      if (text === '#regras') {
+        return chat.sendMessage(regrasDoGrupo);
+      }
+
+      await handleCommands(msg);
+      // Aqui pode entrar sua moderação se quiser
+    } else {
+      // Mensagem privada, responde só ao !help
+      if (msg.body.trim().toLowerCase() === '!help') {
+        await handleCommands(msg);
+      }
+    }
   } catch (error) {
     console.error('Erro no evento message:', error);
-  }
-});
-
-// Evento message_create (mensagens enviadas pelo bot)
-client.on('message_create', async msg => {
-  try {
-    if (!msg.fromMe) return;
-    const chat = await msg.getChat();
-    if (!chat.isGroup || !gruposPermitidos.includes(chat.id._serialized)) return;
-    await handleCommands(msg);
-  } catch (error) {
-    console.error('Erro no evento message_create:', error);
   }
 });
 
@@ -116,7 +123,10 @@ async function gerenciarGrupoPorHorario() {
   }
 
   for (const chat of chats) {
-    if (!chat.isGroup || !gruposPermitidos.includes(chat.id._serialized)) continue;
+    if (!chat.isGroup) continue;
+    if (!chat.id || !chat.id._serialized) continue;
+
+    if (!gruposPermitidos.includes(chat.id._serialized)) continue;
 
     const agora = new Date();
     const chaveChat = chat.id._serialized;
@@ -145,16 +155,15 @@ async function gerenciarGrupoPorHorario() {
 
 // Inicia intervalos após o client estar pronto
 function iniciarIntervalos() {
-  setInterval(gerenciarGrupoPorHorario, 60000); // checa horários a cada 1 minuto
+  setInterval(gerenciarGrupoPorHorario, 60000);
 
   setInterval(() => {
     if (clientReady) {
       client.sendMessage(seuNumero, '✅ Ping automático - bot ativo.');
     }
-  }, 20 * 60 * 1000); // envia ping a cada 20 minutos
+  }, 20 * 60 * 1000);
 }
 
-// Inicializa o cliente
 client.initialize();
 
 // Express para servir página com QR Code
@@ -166,11 +175,10 @@ app.get('/', (req, res) => {
       <p>Depois que o QR for escaneado, esta tela ficará vazia.</p>
     `);
   } else {
-    res.send('<h1>Bot está conectado e ativo novamente!</h1>');
+    res.send('<h1>Bot está conectado e ativo novamente 2!</h1>');
   }
 });
 
-// Inicia o servidor Express
 app.listen(port, () => {
   console.log(`Servidor Express rodando na porta ${port}`);
 });
