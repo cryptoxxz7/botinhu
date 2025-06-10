@@ -1,5 +1,5 @@
 const express = require('express');
-const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
+const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
 
 const app = express();
@@ -17,7 +17,6 @@ const client = new Client({
 
 const seuNumero = '13988755893@c.us';
 
-// Evento QR
 client.on('qr', (qr) => {
   qrcode.toDataURL(qr, (err, url) => {
     if (err) return console.error(err);
@@ -26,7 +25,6 @@ client.on('qr', (qr) => {
   });
 });
 
-// Evento ready
 client.on('ready', () => {
   console.log('✅ Shellzinha Private ON');
   qrCodeData = null;
@@ -39,7 +37,6 @@ client.on('ready', () => {
   iniciarIntervalos();
 });
 
-// Comandos e regras
 const regrasDoGrupo = `📌 *REGRAS DO GRUPO:*
 1️⃣ Sem *links*, *fotos* ou *vídeos*.
 2️⃣ Permitido: *áudios*, *stickers* e *textos* (máx. 35 palavras).
@@ -49,22 +46,82 @@ Obrigado por colaborar.
 `;
 
 async function moderarMensagem(msg) {
-  // Adicione aqui lógica de moderação futura
+  // Pode adicionar lógica de moderação aqui
 }
 
 async function handleCommands(msg) {
-  const text = msg.body.trim().toLowerCase();
+  const texto = msg.body.trim().toLowerCase();
+  const chat = await msg.getChat();
 
-  if (text === '!help') {
-    return msg.reply(`🤖 *Comandos disponíveis:*\n- !help\n- #regras`);
+  if (!chat.isGroup) return;
+
+  const author = msg.author || msg.from;
+  const eu = await client.getMe();
+  const isAdmin = chat.participants.find(p => p.id._serialized === author)?.isAdmin;
+  const botIsAdmin = chat.participants.find(p => p.id._serialized === eu._serialized)?.isAdmin;
+
+  if (texto === '!help') {
+    return msg.reply(`🤖 *Comandos disponíveis:*\n- !help\n- #regras\n- !ban (marcar msg)\n- !fechar\n- !abrir`);
   }
 
-  if (text === '#regras') {
+  if (texto === '#regras') {
     return msg.reply(regrasDoGrupo);
+  }
+
+  if (texto === '!ban') {
+    if (!msg.hasQuotedMsg) {
+      return msg.reply('❌ Marque a mensagem da pessoa que deseja banir.');
+    }
+
+    if (!isAdmin) {
+      return msg.reply('❌ Apenas administradores podem usar este comando.');
+    }
+
+    if (!botIsAdmin) {
+      return msg.reply('❌ Eu preciso ser admin para remover alguém.');
+    }
+
+    const quotedMsg = await msg.getQuotedMessage();
+    const alvo = quotedMsg.author || quotedMsg.from;
+
+    try {
+      await chat.removeParticipants([alvo]);
+      await msg.reply(`🚫 Usuário removido com sucesso.`);
+    } catch (err) {
+      console.error('Erro ao banir:', err);
+      await msg.reply('⚠️ Erro ao tentar remover o usuário.');
+    }
+  }
+
+  if (texto === '!fechar') {
+    if (!isAdmin || !botIsAdmin) {
+      return msg.reply('❌ Comando reservado a admins e o bot precisa ser admin.');
+    }
+
+    try {
+      await chat.setMessagesAdminsOnly(true);
+      await chat.sendMessage('🔒 Grupo fechado por um administrador.');
+    } catch (err) {
+      console.error('Erro ao fechar grupo:', err);
+      await msg.reply('⚠️ Erro ao tentar fechar o grupo.');
+    }
+  }
+
+  if (texto === '!abrir') {
+    if (!isAdmin || !botIsAdmin) {
+      return msg.reply('❌ Comando reservado a admins e o bot precisa ser admin.');
+    }
+
+    try {
+      await chat.setMessagesAdminsOnly(false);
+      await chat.sendMessage('🔓 Grupo reaberto por um administrador.');
+    } catch (err) {
+      console.error('Erro ao abrir grupo:', err);
+      await msg.reply('⚠️ Erro ao tentar abrir o grupo.');
+    }
   }
 }
 
-// Evento message (todas as mensagens recebidas)
 client.on('message', async msg => {
   try {
     if (msg.fromMe) return;
@@ -76,7 +133,6 @@ client.on('message', async msg => {
   }
 });
 
-// Evento message_create (mensagens enviadas pelo próprio bot)
 client.on('message_create', async msg => {
   try {
     if (!msg.fromMe) return;
@@ -86,7 +142,7 @@ client.on('message_create', async msg => {
   }
 });
 
-// Gerenciamento automático de grupos (fechar/abrir)
+// Auto abrir/fechar grupo com horário fixo
 const horarioFechar = { hora: 4, minuto: 0 };
 const horarioAbrir = { hora: 8, minuto: 0 };
 let ultimoFechamento = null;
@@ -147,7 +203,6 @@ function iniciarIntervalos() {
 
 client.initialize();
 
-// Página com QR code (usada no Render)
 app.get('/', (req, res) => {
   if (qrCodeData) {
     res.send(`
@@ -160,7 +215,6 @@ app.get('/', (req, res) => {
   }
 });
 
-// Mantém o Render ativo
 app.listen(port, () => {
   console.log(`🌐 Servidor Express online na porta ${port}`);
 });
