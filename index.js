@@ -11,24 +11,33 @@ let qrCodeData = null;
 const client = new Client({
   authStrategy: new LocalAuth(),
   puppeteer: {
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+    // Se necessário, defina o caminho do Chromium no seu ambiente:
+    // executablePath: '/usr/bin/chromium-browser',
   },
 });
 
-const seuNumero = '13988755893@c.us';
+const seuNumero = '13988755893@c.us'; // Seu número
 
-// Evento QR
+const regrasDoGrupo = `📌 *REGRAS DO GRUPO:*
+1️⃣ Sem *links*, *fotos* ou *vídeos*.
+2️⃣ Permitido: *áudios*, *stickers* e *textos* (máx. 35 palavras).
+3️⃣ Regras ignoradas = *banimento* após 1 aviso.
+4️⃣ Mantenha o respeito e evite spam.
+Obrigado por colaborar.
+`;
+
 client.on('qr', (qr) => {
   qrcode.toDataURL(qr, (err, url) => {
     if (err) return console.error(err);
     qrCodeData = url;
-    console.log('QR code gerado! Acesse a página para escanear.');
+    console.log('Código QR gerado! Acesse a página para escanear.');
   });
 });
 
-// Evento ready
 client.on('ready', () => {
-  console.log('✅ Shellzinha Private ON');
+  console.log('✅ Shellzinha Privada ON');
   qrCodeData = null;
   clientReady = true;
 
@@ -39,53 +48,28 @@ client.on('ready', () => {
   iniciarIntervalos();
 });
 
-// Regras do grupo
-const regrasDoGrupo = `📌 *REGRAS DO GRUPO:*
-1️⃣ Sem *links*, *fotos* ou *vídeos*.
-2️⃣ Permitido: *áudios*, *stickers* e *textos* (máx. 35 palavras).
-3️⃣ Regras ignoradas = *banimento* após 1 aviso.
-4️⃣ Mantenha o respeito e evite spam.
-Obrigado por colaborar.
-`;
+client.on('authenticated', () => {
+  console.log('Cliente autenticado com sucesso!');
+});
 
-// Função para banir usuário (remover do grupo)
-async function banirUsuario(chat, userId) {
+client.on('auth_failure', (msg) => {
+  console.error('Falha na autenticação:', msg);
+});
+
+client.on('disconnected', (reason) => {
+  console.log('Cliente desconectado:', reason);
+  clientReady = false;
+});
+
+// Banir quem responder mensagem de alguém (simples)
+// Basta deletar a mensagem respondida para dar "banimento"
+async function banirResponder(msg) {
+  if (!msg.hasQuotedMsg) return;
   try {
-    await chat.removeParticipants([userId]);
-    console.log(`Usuário ${userId} banido do grupo ${chat.name}`);
-  } catch (error) {
-    console.error(`Erro ao banir usuário ${userId}:`, error);
-  }
-}
-
-// Função de moderação com banimento automático ao responder alguém
-async function moderarMensagem(msg) {
-  // Só vale para grupos
-  if (!msg.from.endsWith('@g.us')) return;
-
-  // Se a mensagem for resposta a outra (msg.hasQuotedMsg)
-  if (msg.hasQuotedMsg) {
-    const chat = await msg.getChat();
-    const remetente = msg.author || msg.from; // msg.author para grupos, msg.from para privado
-
-    // Não banir o próprio bot ou o dono
-    if (remetente === client.info.wid._serialized || remetente === seuNumero) return;
-
-    // Deletar a mensagem que respondeu
-    try {
-      await msg.delete(true);
-      console.log(`Mensagem deletada de ${remetente} por resposta proibida.`);
-    } catch {
-      console.log('Não foi possível deletar a mensagem.');
-    }
-
-    // Banir usuário do grupo
-    await banirUsuario(chat, remetente);
-
-    // Avisar no grupo
-    await chat.sendMessage(`🚫 @${remetente.replace('@c.us', '')} foi banido por responder mensagens no grupo.`, {
-      mentions: [remetente]
-    });
+    await msg.delete(true);
+    await msg.reply('⚠️ Você foi banido por responder mensagens no grupo.');
+  } catch {
+    // Pode não ter permissão para deletar, ignore
   }
 }
 
@@ -102,41 +86,43 @@ async function handleCommands(msg) {
   }
 }
 
-// Evento de boas-vindas
-client.on('group_join', async (notification) => {
-  const chat = await notification.getChat();
-  const user = notification.recipient; // quem entrou
+// Moderação (banir responder)
+async function moderarMensagem(msg) {
+  if (msg.fromMe) return;
 
-  const userContact = await client.getContactById(user);
-  await chat.sendMessage(`Seja bem-vindo(a), @${userContact.number}!
-> Leia as regras do grupo digitando #regras.`, {
-    mentions: [userContact]
-  });
-});
+  // Banir se respondeu alguém
+  if (msg.hasQuotedMsg) {
+    await banirResponder(msg);
+  }
+}
 
-// Evento message (todas as mensagens recebidas)
+// Evento de mensagem
 client.on('message', async (msg) => {
   try {
-    if (msg.fromMe) return;
-
     await moderarMensagem(msg);
     await handleCommands(msg);
-  } catch (error) {
-    console.error('Erro no evento message:', error);
+  } catch (err) {
+    // Erros não travam o bot
+    console.error('Erro no evento message:', err.message || err);
   }
 });
 
-// Evento message_create (mensagens enviadas pelo próprio bot)
-client.on('message_create', async (msg) => {
+// Boas vindas para quem entrar no grupo
+client.on('group_join', async (notification) => {
   try {
-    if (!msg.fromMe) return;
-    await handleCommands(msg);
-  } catch (error) {
-    console.error('Erro no evento message_create:', error);
+    const chat = await notification.getChat();
+    const user = await notification.getUser();
+
+    chat.sendMessage(`👋 Olá @${user.id.user}, seja bem-vindo(a) ao grupo! Leia as regras:\n\n${regrasDoGrupo}`, {
+      mentions: [user]
+    });
+  } catch (err) {
+    console.error('Erro ao enviar boas-vindas:', err.message || err);
   }
 });
 
-// Gerenciamento automático de grupos (fechar/abrir)
+// Gerenciar grupo por horário (fecha/abre)
+// Só roda se clientReady for true
 const horarioFechar = { hora: 4, minuto: 0 };
 const horarioAbrir = { hora: 8, minuto: 0 };
 let ultimoFechamento = null;
@@ -153,15 +139,16 @@ async function gerenciarGrupoPorHorario() {
   let chats;
   try {
     chats = await client.getChats();
-  } catch (error) {
-    console.error('Erro ao obter chats:', error);
+  } catch {
+    // Se der erro, ignore para não travar o bot
     return;
   }
+
+  const agora = new Date();
 
   for (const chat of chats) {
     if (!chat.isGroup) continue;
 
-    const agora = new Date();
     const chaveChat = chat.id._serialized;
 
     if (agoraEhHorario(horarioFechar) && ultimoFechamento !== chaveChat + agora.getDate()) {
@@ -169,8 +156,8 @@ async function gerenciarGrupoPorHorario() {
         await chat.setMessagesAdminsOnly(true);
         await chat.sendMessage('🔒 Grupo fechado automaticamente. Retornamos às 08:00.');
         ultimoFechamento = chaveChat + agora.getDate();
-      } catch (err) {
-        console.log('Erro ao fechar grupo:', err);
+      } catch {
+        // ignorar erro
       }
     }
 
@@ -179,15 +166,15 @@ async function gerenciarGrupoPorHorario() {
         await chat.setMessagesAdminsOnly(false);
         await chat.sendMessage('🔓 Grupo aberto novamente. Bom dia a todos!');
         ultimaAbertura = chaveChat + agora.getDate();
-      } catch (err) {
-        console.log('Erro ao abrir grupo:', err);
+      } catch {
+        // ignorar erro
       }
     }
   }
 }
 
 function iniciarIntervalos() {
-  setInterval(gerenciarGrupoPorHorario, 60000);
+  setInterval(gerenciarGrupoPorHorario, 60 * 1000); // verifica a cada minuto
   setInterval(() => {
     if (clientReady) {
       client.sendMessage(seuNumero, '✅ Ping automático - bot ativo.');
@@ -197,7 +184,6 @@ function iniciarIntervalos() {
 
 client.initialize();
 
-// Página com QR code (usada no Render)
 app.get('/', (req, res) => {
   if (qrCodeData) {
     res.send(`
@@ -206,11 +192,10 @@ app.get('/', (req, res) => {
       <p>Depois que o QR for escaneado, esta tela ficará vazia.</p>
     `);
   } else {
-    res.send('<h1>🤖 Bot WhatsApp está conectado e ativo! atualizado.</h1>');
+    res.send('<h1>🤖 Bot WhatsApp está conectado e ativo!</h1>');
   }
 });
 
-// Mantém o Render ativo
 app.listen(port, () => {
   console.log(`🌐 Servidor Express online na porta ${port}`);
 });
