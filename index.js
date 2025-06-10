@@ -39,7 +39,7 @@ client.on('ready', () => {
   iniciarIntervalos();
 });
 
-// Comandos e regras
+// Regras do grupo
 const regrasDoGrupo = `📌 *REGRAS DO GRUPO:*
 1️⃣ Sem *links*, *fotos* ou *vídeos*.
 2️⃣ Permitido: *áudios*, *stickers* e *textos* (máx. 35 palavras).
@@ -48,10 +48,48 @@ const regrasDoGrupo = `📌 *REGRAS DO GRUPO:*
 Obrigado por colaborar.
 `;
 
-async function moderarMensagem(msg) {
-  // Adicione aqui lógica de moderação futura
+// Função para banir usuário (remover do grupo)
+async function banirUsuario(chat, userId) {
+  try {
+    await chat.removeParticipants([userId]);
+    console.log(`Usuário ${userId} banido do grupo ${chat.name}`);
+  } catch (error) {
+    console.error(`Erro ao banir usuário ${userId}:`, error);
+  }
 }
 
+// Função de moderação com banimento automático ao responder alguém
+async function moderarMensagem(msg) {
+  // Só vale para grupos
+  if (!msg.from.endsWith('@g.us')) return;
+
+  // Se a mensagem for resposta a outra (msg.hasQuotedMsg)
+  if (msg.hasQuotedMsg) {
+    const chat = await msg.getChat();
+    const remetente = msg.author || msg.from; // msg.author para grupos, msg.from para privado
+
+    // Não banir o próprio bot ou o dono
+    if (remetente === client.info.wid._serialized || remetente === seuNumero) return;
+
+    // Deletar a mensagem que respondeu
+    try {
+      await msg.delete(true);
+      console.log(`Mensagem deletada de ${remetente} por resposta proibida.`);
+    } catch {
+      console.log('Não foi possível deletar a mensagem.');
+    }
+
+    // Banir usuário do grupo
+    await banirUsuario(chat, remetente);
+
+    // Avisar no grupo
+    await chat.sendMessage(`🚫 @${remetente.replace('@c.us', '')} foi banido por responder mensagens no grupo.`, {
+      mentions: [remetente]
+    });
+  }
+}
+
+// Comandos básicos
 async function handleCommands(msg) {
   const text = msg.body.trim().toLowerCase();
 
@@ -64,8 +102,20 @@ async function handleCommands(msg) {
   }
 }
 
+// Evento de boas-vindas
+client.on('group_join', async (notification) => {
+  const chat = await notification.getChat();
+  const user = notification.recipient; // quem entrou
+
+  const userContact = await client.getContactById(user);
+  await chat.sendMessage(`Seja bem-vindo(a), @${userContact.number}!
+> Leia as regras do grupo digitando #regras.`, {
+    mentions: [userContact]
+  });
+});
+
 // Evento message (todas as mensagens recebidas)
-client.on('message', async msg => {
+client.on('message', async (msg) => {
   try {
     if (msg.fromMe) return;
 
@@ -77,7 +127,7 @@ client.on('message', async msg => {
 });
 
 // Evento message_create (mensagens enviadas pelo próprio bot)
-client.on('message_create', async msg => {
+client.on('message_create', async (msg) => {
   try {
     if (!msg.fromMe) return;
     await handleCommands(msg);
@@ -156,7 +206,7 @@ app.get('/', (req, res) => {
       <p>Depois que o QR for escaneado, esta tela ficará vazia.</p>
     `);
   } else {
-    res.send('<h1>🤖 Bot WhatsApp está conectado e ativo!</h1>');
+    res.send('<h1>🤖 Bot WhatsApp está conectado e ativo! atualizado.</h1>');
   }
 });
 
