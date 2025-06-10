@@ -1,11 +1,12 @@
 const express = require('express');
-const { Client, LocalAuth } = require('whatsapp-web.js');
-const qrcode = require('qrcode-terminal');
+const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
+const qrcode = require('qrcode');
 
 const app = express();
 const port = process.env.PORT || 3000;
 
-// === Início do seu bot WhatsApp ===
+let clientReady = false;
+let qrCodeData = null;
 
 const client = new Client({
   authStrategy: new LocalAuth(),
@@ -14,57 +15,152 @@ const client = new Client({
   },
 });
 
-let clientReady = false;
-
 const seuNumero = '13988755893@c.us';
 
-const gruposPermitidos = [
-  '120363403199317276@g.us',
-  '120363351699706014@g.us',
-];
-
+// Evento QR
 client.on('qr', (qr) => {
-  console.clear();
-  console.log('QR para escanear:\n');
-  qrcode.generate(qr, { small: true });
+  qrcode.toDataURL(qr, (err, url) => {
+    if (err) return console.error(err);
+    qrCodeData = url;
+    console.log('QR code gerado! Acesse a página para escanear.');
+  });
 });
 
+// Evento ready
 client.on('ready', () => {
-  console.log('✅ Bot ativo!');
+  console.log('✅ Shellzinha Private ON');
+  qrCodeData = null;
   clientReady = true;
 
   setTimeout(() => {
     client.sendMessage(seuNumero, '!help');
   }, 2000);
+
+  iniciarIntervalos();
 });
 
-client.on('message', async (msg) => {
-  if (msg.fromMe) return;
+// Comandos e regras
+const regrasDoGrupo = `📌 *REGRAS DO GRUPO:*
+1️⃣ Sem *links*, *fotos* ou *vídeos*.
+2️⃣ Permitido: *áudios*, *stickers* e *textos* (máx. 35 palavras).
+3️⃣ Regras ignoradas = *banimento* após 1 aviso.
+4️⃣ Mantenha o respeito e evite spam.
+Obrigado por colaborar.
+`;
 
-  const chat = await msg.getChat();
-  const chatId = chat?.id?._serialized;
+async function moderarMensagem(msg) {
+  // Adicione aqui lógica de moderação futura
+}
 
-  if (chat.isGroup && gruposPermitidos.includes(chatId)) {
-    const text = msg.body.trim().toLowerCase();
-    if (text === '#regras') {
-      return msg.reply('📌 Regras do grupo...');
-    }
+async function handleCommands(msg) {
+  const text = msg.body.trim().toLowerCase();
 
-    if (text === '!help') {
-      return msg.reply('🤖 *Comandos:*\n!help - ajuda\n#regras - regras do grupo');
-    }
-  } else if (!chat.isGroup && msg.body.trim().toLowerCase() === '!help') {
-    return msg.reply('🤖 *Comandos:*\n!help - ajuda\n#regras - regras do grupo');
+  if (text === '!help') {
+    return msg.reply(`🤖 *Comandos disponíveis:*\n- !help\n- #regras`);
+  }
+
+  if (text === '#regras') {
+    return msg.reply(regrasDoGrupo);
+  }
+}
+
+// Evento message (todas as mensagens recebidas)
+client.on('message', async msg => {
+  try {
+    if (msg.fromMe) return;
+
+    await moderarMensagem(msg);
+    await handleCommands(msg);
+  } catch (error) {
+    console.error('Erro no evento message:', error);
   }
 });
 
-client.initialize();
-
-// === Express só pra manter o Render vivo ===
-app.get('/', (req, res) => {
-  res.send('🤖 Bot WhatsApp está rodando.');
+// Evento message_create (mensagens enviadas pelo próprio bot)
+client.on('message_create', async msg => {
+  try {
+    if (!msg.fromMe) return;
+    await handleCommands(msg);
+  } catch (error) {
+    console.error('Erro no evento message_create:', error);
+  }
 });
 
+// Gerenciamento automático de grupos (fechar/abrir)
+const horarioFechar = { hora: 4, minuto: 0 };
+const horarioAbrir = { hora: 8, minuto: 0 };
+let ultimoFechamento = null;
+let ultimaAbertura = null;
+
+function agoraEhHorario(horario) {
+  const agora = new Date();
+  return agora.getHours() === horario.hora && agora.getMinutes() === horario.minuto;
+}
+
+async function gerenciarGrupoPorHorario() {
+  if (!clientReady) return;
+
+  let chats;
+  try {
+    chats = await client.getChats();
+  } catch (error) {
+    console.error('Erro ao obter chats:', error);
+    return;
+  }
+
+  for (const chat of chats) {
+    if (!chat.isGroup) continue;
+
+    const agora = new Date();
+    const chaveChat = chat.id._serialized;
+
+    if (agoraEhHorario(horarioFechar) && ultimoFechamento !== chaveChat + agora.getDate()) {
+      try {
+        await chat.setMessagesAdminsOnly(true);
+        await chat.sendMessage('🔒 Grupo fechado automaticamente. Retornamos às 08:00.');
+        ultimoFechamento = chaveChat + agora.getDate();
+      } catch (err) {
+        console.log('Erro ao fechar grupo:', err);
+      }
+    }
+
+    if (agoraEhHorario(horarioAbrir) && ultimaAbertura !== chaveChat + agora.getDate()) {
+      try {
+        await chat.setMessagesAdminsOnly(false);
+        await chat.sendMessage('🔓 Grupo aberto novamente. Bom dia a todos!');
+        ultimaAbertura = chaveChat + agora.getDate();
+      } catch (err) {
+        console.log('Erro ao abrir grupo:', err);
+      }
+    }
+  }
+}
+
+function iniciarIntervalos() {
+  setInterval(gerenciarGrupoPorHorario, 60000);
+  setInterval(() => {
+    if (clientReady) {
+      client.sendMessage(seuNumero, '✅ Ping automático - bot ativo.');
+    }
+  }, 20 * 60 * 1000);
+}
+
+client.initialize();
+
+// Página com QR code (usada no Render)
+app.get('/', (req, res) => {
+  if (qrCodeData) {
+    res.send(`
+      <h1>Escaneie o QR Code para ativar o bot WhatsApp</h1>
+      <img src="${qrCodeData}" />
+      <p>Depois que o QR for escaneado, esta tela ficará vazia.</p>
+    `);
+  } else {
+    res.send('<h1>🤖 Bot WhatsApp está conectado e ativo!</h1>');
+  }
+});
+
+// Mantém o Render ativo
 app.listen(port, () => {
-  console.log(`Servidor web no ar na porta ${port} (Render ativo)`);
+  console.log(`🌐 Servidor Express online na porta ${port}`);
 });
