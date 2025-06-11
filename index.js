@@ -50,7 +50,26 @@ Obrigado por colaborar.
 
 // Função de moderação (pode ser expandida)
 async function moderarMensagem(msg) {
-  // Lógica de moderação futura
+  // 🔥 NOVO: Remover imagem enviada por não-admins
+  if (msg.type === 'image' && msg.isGroupMsg) {
+    const chat = await msg.getChat();
+    const sender = msg.author || msg.from;
+
+    const isBotAdmin = chat.participants.find(p => p.id._serialized === client.info.wid._serialized)?.isAdmin;
+    const isSenderAdmin = chat.participants.find(p => p.id._serialized === sender)?.isAdmin;
+
+    if (!isSenderAdmin && isBotAdmin) {
+      try {
+        await msg.delete(true);
+        await chat.sendMessage(`⚠️ @${sender.split('@')[0]} enviou imagem sem permissão e será removido.`, {
+          mentions: [await client.getContactById(sender)],
+        });
+        await chat.removeParticipants([sender]);
+      } catch (err) {
+        console.error('Erro ao remover imagem e usuário:', err);
+      }
+    }
+  }
 }
 
 // COMANDOS
@@ -106,7 +125,7 @@ client.on('message', async msg => {
   try {
     if (msg.fromMe) return;
 
-    await moderarMensagem(msg);
+    await moderarMensagem(msg); // 🔥 novo comportamento de moderação
     await handleCommands(msg);
   } catch (error) {
     console.error('Erro no evento message:', error);
