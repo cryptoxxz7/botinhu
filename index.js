@@ -16,7 +16,11 @@ const client = new Client({
 });
 
 const seuNumero = '13988755893@c.us';
-const gruposPermitidos = ['120363126498500182@g.us']; // adicione os IDs dos grupos permitidos aqui
+
+const gruposPermitidos = [
+  '120363351699706014@g.us',
+  '120363403199317276@g.us'
+];
 
 client.on('qr', (qr) => {
   qrcode.toDataURL(qr, (err, url) => {
@@ -47,36 +51,44 @@ Obrigado por colaborar.
 `;
 
 async function moderarMensagem(msg) {
-  if ((msg.type === 'image' || msg.type === 'video') && msg.from.endsWith('@g.us')) {
-    const chat = await msg.getChat();
-    const sender = msg.author || msg.from;
-    const isViewOnce = msg.isViewOnce === true;
+  if (!msg.from.endsWith('@g.us') || !gruposPermitidos.includes(msg.from)) return;
 
-    const botId = client.info.wid._serialized;
-    const botIsAdmin = chat.participants.find(p => p.id._serialized === botId)?.isAdmin;
-    const senderIsAdmin = chat.participants.find(p => p.id._serialized === sender)?.isAdmin;
+  const chat = await msg.getChat();
+  const sender = msg.author || msg.from;
+  const botId = client.info.wid._serialized;
+  const botIsAdmin = chat.participants.find(p => p.id._serialized === botId)?.isAdmin;
+  const senderIsAdmin = chat.participants.find(p => p.id._serialized === sender)?.isAdmin;
+  const contato = await client.getContactById(sender);
 
-    if (!senderIsAdmin && botIsAdmin) {
-      try {
-        await msg.delete(true);
-        const contato = await client.getContactById(sender);
-        const tipo = msg.type === 'video' ? 'vídeo' : 'imagem';
-        const viewOnceInfo = isViewOnce ? ' (visualização única)' : '';
+  // Remover imagens e vídeos
+  if ((msg.type === 'image' || msg.type === 'video') && !senderIsAdmin && botIsAdmin) {
+    const tipo = msg.type === 'video' ? 'vídeo' : 'imagem';
+    const viewOnceInfo = msg.isViewOnce ? ' (visualização única)' : '';
+    await msg.delete(true);
+    await chat.sendMessage(
+      `⚠️ @${sender.split('@')[0]} enviou ${tipo}${viewOnceInfo} sem permissão e foi removido.`,
+      { mentions: [contato] }
+    );
+    await chat.removeParticipants([sender]);
+  }
 
-        await chat.sendMessage(
-          `⚠️ @${sender.split('@')[0]} enviou ${tipo}${viewOnceInfo} sem permissão e será removido.`,
-          { mentions: [contato] }
-        );
-
-        await chat.removeParticipants([sender]);
-      } catch (err) {
-        console.error('Erro ao remover imagem e usuário:', err);
-      }
+  // Remover mensagens longas com mais de 35 palavras
+  if (msg.body && !senderIsAdmin && botIsAdmin) {
+    const palavras = msg.body.trim().split(/\s+/);
+    if (palavras.length > 35) {
+      await msg.delete(true);
+      await chat.sendMessage(
+        `⚠️ @${sender.split('@')[0]} escreveu mais de 35 palavras e foi removido.`,
+        { mentions: [contato] }
+      );
+      await chat.removeParticipants([sender]);
     }
   }
 }
 
 async function handleCommands(msg) {
+  if (!gruposPermitidos.includes(msg.from) && msg.from.endsWith('@g.us')) return;
+
   const text = msg.body.trim().toLowerCase();
 
   if (text === '!help') {
@@ -94,26 +106,17 @@ async function handleCommands(msg) {
     const chat = await msg.getChat();
     const quotedMsg = await msg.getQuotedMessage();
 
-    if (!chat.isGroup) {
-      return msg.reply('❌ Esse comando só pode ser usado em grupos.');
-    }
+    if (!chat.isGroup) return msg.reply('❌ Esse comando só pode ser usado em grupos.');
 
     const botId = client.info.wid._serialized;
     const botIsAdmin = chat.participants.find(p => p.id._serialized === botId)?.isAdmin;
     const authorIsAdmin = chat.participants.find(p => p.id._serialized === msg.author)?.isAdmin;
 
-    if (!authorIsAdmin) {
-      return msg.reply('❌ Apenas administradores podem usar este comando.');
-    }
-
-    if (!botIsAdmin) {
-      return msg.reply('⚠️ Eu preciso ser administrador para remover membros.');
-    }
+    if (!authorIsAdmin) return msg.reply('❌ Apenas administradores podem usar este comando.');
+    if (!botIsAdmin) return msg.reply('⚠️ Eu preciso ser administrador para remover membros.');
 
     const target = quotedMsg.author || quotedMsg.from;
-    if (!target) {
-      return msg.reply('❌ Não consegui identificar o usuário a ser removido.');
-    }
+    if (!target) return msg.reply('❌ Não consegui identificar o usuário a ser removido.');
 
     try {
       await chat.removeParticipants([target]);
@@ -128,7 +131,6 @@ async function handleCommands(msg) {
 client.on('message', async msg => {
   try {
     if (msg.fromMe) return;
-
     await moderarMensagem(msg);
     await handleCommands(msg);
   } catch (error) {
@@ -149,9 +151,9 @@ client.on('group_join', async (notification) => {
   const chat = await notification.getChat();
   if (!gruposPermitidos.includes(chat.id._serialized)) return;
   const participant = notification.id.participant;
+  const contato = await client.getContactById(participant);
   await chat.sendMessage(
-    `
-👤 *Bem-vindo(a), @${participant.split('@')[0]}!* 👨‍💻
+    `👤 *Bem-vindo(a), @${participant.split('@')[0]}!* 👨‍💻
 
 | Leia as regras digitando: *#regras* 
 
@@ -159,9 +161,8 @@ client.on('group_join', async (notification) => {
 
 Se quiser algum *serviço*, só me chamar!
 
-> ⚠ Não aceite serviços de outra pessoa sem ser os adm.
-`,
-    { mentions: [participant] }
+> ⚠ Não aceite serviços de outra pessoa sem ser os adm.`,
+    { mentions: [contato] }
   );
 });
 
@@ -187,7 +188,7 @@ async function gerenciarGrupoPorHorario() {
   }
 
   for (const chat of chats) {
-    if (!chat.isGroup) continue;
+    if (!chat.isGroup || !gruposPermitidos.includes(chat.id._serialized)) continue;
 
     const agora = new Date();
     const chaveChat = chat.id._serialized;
@@ -238,5 +239,5 @@ app.get('/', (req, res) => {
 });
 
 app.listen(port, () => {
-  console.log(`🌐 Servidor Express online na porta ${port}`);
+  console.log(`🌐 Servidor from ative in Express online na porta ${port}`);
 });
