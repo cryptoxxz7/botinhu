@@ -16,8 +16,8 @@ const client = new Client({
 });
 
 const seuNumero = '13988755893@c.us';
+const gruposPermitidos = ['120363126498500182@g.us']; // adicione os IDs dos grupos permitidos aqui
 
-// Evento QR
 client.on('qr', (qr) => {
   qrcode.toDataURL(qr, (err, url) => {
     if (err) return console.error(err);
@@ -26,7 +26,6 @@ client.on('qr', (qr) => {
   });
 });
 
-// Evento ready
 client.on('ready', () => {
   console.log('✅ Shellzinha Private ON');
   qrCodeData = null;
@@ -39,7 +38,6 @@ client.on('ready', () => {
   iniciarIntervalos();
 });
 
-// Regras do grupo
 const regrasDoGrupo = `📌 *REGRAS DO GRUPO:*
 1️⃣ Sem *links*, *fotos* ou *vídeos*.
 2️⃣ Permitido: *áudios*, *stickers* e *textos* (máx. 35 palavras).
@@ -48,11 +46,11 @@ const regrasDoGrupo = `📌 *REGRAS DO GRUPO:*
 Obrigado por colaborar.
 `;
 
-// Função de moderação (pode ser expandida)
 async function moderarMensagem(msg) {
-  if (msg.type === 'image' && msg.from.endsWith('@g.us')) {
+  if ((msg.type === 'image' || msg.type === 'video') && msg.from.endsWith('@g.us')) {
     const chat = await msg.getChat();
     const sender = msg.author || msg.from;
+    const isViewOnce = msg.isViewOnce === true;
 
     const botId = client.info.wid._serialized;
     const botIsAdmin = chat.participants.find(p => p.id._serialized === botId)?.isAdmin;
@@ -62,10 +60,13 @@ async function moderarMensagem(msg) {
       try {
         await msg.delete(true);
         const contato = await client.getContactById(sender);
+        const tipo = msg.type === 'video' ? 'vídeo' : 'imagem';
+        const viewOnceInfo = isViewOnce ? ' (visualização única)' : '';
 
-        await chat.sendMessage(`⚠️ @${sender.split('@')[0]} enviou imagem sem permissão e será removido.`, {
-          mentions: [contato],
-        });
+        await chat.sendMessage(
+          `⚠️ @${sender.split('@')[0]} enviou ${tipo}${viewOnceInfo} sem permissão e será removido.`,
+          { mentions: [contato] }
+        );
 
         await chat.removeParticipants([sender]);
       } catch (err) {
@@ -75,19 +76,20 @@ async function moderarMensagem(msg) {
   }
 }
 
-// COMANDOS
 async function handleCommands(msg) {
   const text = msg.body.trim().toLowerCase();
 
   if (text === '!help') {
-    return msg.reply(`🤖 *Comandos disponíveis:*\n- !help\n- #regras\n- #ban (responder mensagem)`);
+    return msg.reply(`🤖 *Comandos disponíveis:*
+- !help
+- #regras
+- #ban (responder mensagem)`);
   }
 
   if (text === '#regras') {
     return msg.reply(regrasDoGrupo);
   }
 
-  // Comando de ban
   if (text === '#ban' && msg.hasQuotedMsg) {
     const chat = await msg.getChat();
     const quotedMsg = await msg.getQuotedMessage();
@@ -123,19 +125,17 @@ async function handleCommands(msg) {
   }
 }
 
-// Mensagens recebidas
 client.on('message', async msg => {
   try {
     if (msg.fromMe) return;
 
-    await moderarMensagem(msg); // 🔥 novo comportamento de moderação
+    await moderarMensagem(msg);
     await handleCommands(msg);
   } catch (error) {
     console.error('Erro no evento message:', error);
   }
 });
 
-// Mensagens enviadas pelo bot
 client.on('message_create', async msg => {
   try {
     if (!msg.fromMe) return;
@@ -145,7 +145,26 @@ client.on('message_create', async msg => {
   }
 });
 
-// Gerenciamento automático de grupos (fechar/abrir)
+client.on('group_join', async (notification) => {
+  const chat = await notification.getChat();
+  if (!gruposPermitidos.includes(chat.id._serialized)) return;
+  const participant = notification.id.participant;
+  await chat.sendMessage(
+    `
+👤 *Bem-vindo(a), @${participant.split('@')[0]}!* 👨‍💻
+
+| Leia as regras digitando: *#regras* 
+
+🔐 Respeite as regras para não ser banido.
+
+Se quiser algum *serviço*, só me chamar!
+
+> ⚠ Não aceite serviços de outra pessoa sem ser os adm.
+`,
+    { mentions: [participant] }
+  );
+});
+
 const horarioFechar = { hora: 4, minuto: 0 };
 const horarioAbrir = { hora: 8, minuto: 0 };
 let ultimoFechamento = null;
@@ -206,7 +225,6 @@ function iniciarIntervalos() {
 
 client.initialize();
 
-// Página com QR code
 app.get('/', (req, res) => {
   if (qrCodeData) {
     res.send(`
