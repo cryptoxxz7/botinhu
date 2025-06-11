@@ -50,20 +50,23 @@ Obrigado por colaborar.
 
 // Função de moderação (pode ser expandida)
 async function moderarMensagem(msg) {
-  // 🔥 NOVO: Remover imagem enviada por não-admins
-  if (msg.type === 'image' && msg.isGroupMsg) {
+  if (msg.type === 'image' && msg.from.endsWith('@g.us')) {
     const chat = await msg.getChat();
     const sender = msg.author || msg.from;
 
-    const isBotAdmin = chat.participants.find(p => p.id._serialized === client.info.wid._serialized)?.isAdmin;
-    const isSenderAdmin = chat.participants.find(p => p.id._serialized === sender)?.isAdmin;
+    const botId = client.info.wid._serialized;
+    const botIsAdmin = chat.participants.find(p => p.id._serialized === botId)?.isAdmin;
+    const senderIsAdmin = chat.participants.find(p => p.id._serialized === sender)?.isAdmin;
 
-    if (!isSenderAdmin && isBotAdmin) {
+    if (!senderIsAdmin && botIsAdmin) {
       try {
         await msg.delete(true);
+        const contato = await client.getContactById(sender);
+
         await chat.sendMessage(`⚠️ @${sender.split('@')[0]} enviou imagem sem permissão e será removido.`, {
-          mentions: [await client.getContactById(sender)],
+          mentions: [contato],
         });
+
         await chat.removeParticipants([sender]);
       } catch (err) {
         console.error('Erro ao remover imagem e usuário:', err);
