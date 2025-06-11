@@ -39,7 +39,7 @@ client.on('ready', () => {
   iniciarIntervalos();
 });
 
-// Comandos e regras
+// Regras do grupo
 const regrasDoGrupo = `📌 *REGRAS DO GRUPO:*
 1️⃣ Sem *links*, *fotos* ou *vídeos*.
 2️⃣ Permitido: *áudios*, *stickers* e *textos* (máx. 35 palavras).
@@ -48,23 +48,60 @@ const regrasDoGrupo = `📌 *REGRAS DO GRUPO:*
 Obrigado por colaborar.
 `;
 
+// Função de moderação (pode ser expandida)
 async function moderarMensagem(msg) {
-  // Adicione aqui lógica de moderação futura
+  // Lógica de moderação futura
 }
 
+// COMANDOS
 async function handleCommands(msg) {
   const text = msg.body.trim().toLowerCase();
 
   if (text === '!help') {
-    return msg.reply(`🤖 *Comandos disponíveis:*\n- !help\n- #regras`);
+    return msg.reply(`🤖 *Comandos disponíveis:*\n- !help\n- #regras\n- #ban (responder mensagem)`);
   }
 
   if (text === '#regras') {
     return msg.reply(regrasDoGrupo);
   }
+
+  // Comando de ban
+  if (text === '#ban' && msg.hasQuotedMsg) {
+    const chat = await msg.getChat();
+    const quotedMsg = await msg.getQuotedMessage();
+
+    if (!chat.isGroup) {
+      return msg.reply('❌ Esse comando só pode ser usado em grupos.');
+    }
+
+    const botId = client.info.wid._serialized;
+    const botIsAdmin = chat.participants.find(p => p.id._serialized === botId)?.isAdmin;
+    const authorIsAdmin = chat.participants.find(p => p.id._serialized === msg.author)?.isAdmin;
+
+    if (!authorIsAdmin) {
+      return msg.reply('❌ Apenas administradores podem usar este comando.');
+    }
+
+    if (!botIsAdmin) {
+      return msg.reply('⚠️ Eu preciso ser administrador para remover membros.');
+    }
+
+    const target = quotedMsg.author || quotedMsg.from;
+    if (!target) {
+      return msg.reply('❌ Não consegui identificar o usuário a ser removido.');
+    }
+
+    try {
+      await chat.removeParticipants([target]);
+      await msg.reply(`👋 Usuário removido com sucesso.`);
+    } catch (err) {
+      console.error('Erro ao remover participante:', err);
+      await msg.reply('⚠️ Ocorreu um erro ao tentar remover o usuário.');
+    }
+  }
 }
 
-// Evento message (todas as mensagens recebidas)
+// Mensagens recebidas
 client.on('message', async msg => {
   try {
     if (msg.fromMe) return;
@@ -76,7 +113,7 @@ client.on('message', async msg => {
   }
 });
 
-// Evento message_create (mensagens enviadas pelo próprio bot)
+// Mensagens enviadas pelo bot
 client.on('message_create', async msg => {
   try {
     if (!msg.fromMe) return;
@@ -147,7 +184,7 @@ function iniciarIntervalos() {
 
 client.initialize();
 
-// Página com QR code (usada no Render)
+// Página com QR code
 app.get('/', (req, res) => {
   if (qrCodeData) {
     res.send(`
@@ -156,11 +193,10 @@ app.get('/', (req, res) => {
       <p>Depois que o QR for escaneado, esta tela ficará vazia.</p>
     `);
   } else {
-    res.send('<h1>🤖 Bot WhatsApp está conectado e ativo!</h1>');
+    res.send('<h1>🤖 Bot WhatsApp</h1>');
   }
 });
 
-// Mantém o Render ativo
 app.listen(port, () => {
   console.log(`🌐 Servidor Express online na porta ${port}`);
 });
