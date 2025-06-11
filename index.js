@@ -211,7 +211,7 @@ app.get('/', (req, res) => {
       <p>Depois que o QR for escaneado, esta tela ficará vazia.</p>
     `);
   } else {
-    res.send('<h1>🤖 Bot WhatsApp está conectado e ativo!</h1>');
+    res.send('<h1>Bot oN ✅</h1>');
   }
 });
 
